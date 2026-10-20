@@ -1,0 +1,32 @@
+def send_using_stop_and_wait(self, message: bytes) -> None:
+        message_length = str(len(message)).encode()
+        # dividimos el mensaje en trozos de 16 bytes
+        data_list = self.divide_message(message, 16)
+
+        # usamos una ventana para que vean como se usa
+        initial_seq = self.seq
+        data_to_send = SlidingWindowCC(1, [message_length] + data_list, initial_seq)
+        wnd_index = 0
+
+        # partimos armando y enviando el primer segmento
+        current_data = data_to_send.get_data(0)
+        current_seq = data_to_send.get_sequence_number(0)
+        current_segment = self.wrap_data_as_segment(current_data, current_seq)
+
+        while current_data is not None:
+            self.socketUDP.sendto(current_segment, self.destination_address, timer_index=0)
+            try:
+                answer, address = self.socketUDP.recvfrom(self.buff_size)
+                if self.is_valid_ack_stop_and_wait(current_segment, answer):
+                    self.socketUDP.stop_timer(timer_index=0) # solo hay un timer
+                    # actualizamos el segmento
+                    data_to_send.move_window(1)
+                    current_data = data_to_send.get_data(0)
+                    current_seq = data_to_send.get_sequence_number(0)
+                    if current_data is not None:
+                        self.seq = current_seq
+                        current_segment = self.wrap_data_as_segment(current_data, current_seq)
+                        self.socketUDP.sendto(current_segment, self.destination_address, timer_index=0)
+
+            except TimeoutError:
+                self.socketUDP.sendto(current_segment, self.destination_address, timer_index=0)
